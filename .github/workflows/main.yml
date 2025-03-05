@@ -1,4 +1,4 @@
-name: CI/CD for Github actions
+name: CI/CD for Github Actions
 
 on:
   push:
@@ -22,7 +22,48 @@ jobs:
           cache: maven
 
       - name: Build with Maven
-        run:  mvn clean package -DskipTests=false
+        run: mvn clean package -DskipTests=false
 
       - name: Run Unit Tests
-        run:  mvn test
+        run: mvn test
+
+  docker:
+    name: Build & Push Docker Image
+    needs: build-deploy
+    runs-on: ubuntu-latest  # Using Ubuntu for Docker operations
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build & Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/githubactions:latest
+
+  deploy:
+    name: Deploy to Server
+    needs: docker
+    runs-on: ubuntu-latest  # Deployment on Ubuntu
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            docker pull ${{ secrets.DOCKER_USERNAME }}/githubactions:latest
+            docker stop spring-boot-app || true
+            docker rm spring-boot-app || true
+            docker run -d --name spring-boot-app -p 8080:8080 ${{ secrets.DOCKER_USERNAME }}/githubactions:latest
